@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Google 登入問卷 Demo</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    :root {
+      --bg: #f4f6f8; --card: #fff; --text: #1f2933; --muted: #6b7785;
+      --accent: #1a73e8; --ok: #188038; --err: #d93025; --border: #dde3ea;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+      padding: 16px;
+    }
+    .card {
+      width: 100%; max-width: 420px; background: var(--card); border-radius: 12px;
+      padding: 28px; box-shadow: 0 2px 12px rgba(0,0,0,.08);
+    }
+    h1 { font-size: 1.3rem; margin: 0 0 6px; }
+    p.sub { color: var(--muted); margin: 0 0 22px; font-size: .9rem; }
+    .hidden { display: none !important; }
+    .user { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 20px; }
+    .user img { width: 40px; height: 40px; border-radius: 50%; }
+    .user .info { flex: 1; min-width: 0; }
+    .user .info div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .user .email { color: var(--muted); font-size: .85rem; }
+    label { display: block; font-weight: 600; margin: 14px 0 6px; }
+    input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 1rem; }
+    .radios { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+    .radios label { font-weight: normal; margin: 0; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    button { cursor: pointer; border: none; border-radius: 6px; font-size: 1rem; }
+    .primary { width: 100%; margin-top: 22px; padding: 12px; background: var(--accent); color: #fff; }
+    .primary:disabled { opacity: .5; cursor: wait; }
+    .link { background: none; color: var(--accent); padding: 4px; font-size: .85rem; }
+    #msg { margin-top: 16px; font-size: .95rem; min-height: 1.4em; }
+    #msg.ok { color: var(--ok); } #msg.err { color: var(--err); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>簡易問卷</h1>
+    <p class="sub">請先用 Google 帳號登入再填寫</p>
+
+    <!-- 未登入 -->
+    <div id="loginBox">
+      <div id="googleBtn"></div>
+    </div>
+
+    <!-- 已登入 -->
+    <div id="formBox" class="hidden">
+      <div class="user">
+        <img id="avatar" alt="">
+        <div class="info">
+          <div id="gName"></div>
+          <div id="gEmail" class="email"></div>
+        </div>
+        <button class="link" id="logoutBtn" type="button">登出</button>
+      </div>
+
+      <form id="form">
+        <label for="name">姓名</label>
+        <input type="text" id="name" maxlength="50" required>
+
+        <label>性別</label>
+        <div class="radios">
+          <label><input type="radio" name="gender" value="男" required> 男</label>
+          <label><input type="radio" name="gender" value="女"> 女</label>
+          <label><input type="radio" name="gender" value="其他"> 其他</label>
+          <label><input type="radio" name="gender" value="不願透露"> 不願透露</label>
+        </div>
+
+        <button class="primary" id="submitBtn" type="submit">送出</button>
+      </form>
+    </div>
+
+    <div id="msg"></div>
+  </div>
+
+<script>
+  // ====== 設定：換成你自己的值 ======
+  const CLIENT_ID = 'YOUR_CLIENT_ID.apps.googleusercontent.com';
+  const GAS_URL   = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec';
+  // ==================================
+
+  let idToken = null;   // 只存在記憶體，重新整理就要重新登入
+  let payload = null;
+
+  const $ = id => document.getElementById(id);
+
+  // 解 JWT payload（只拿來顯示，不做信任判斷；驗證在後端）
+  function decodeJwt(token) {
+    let b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    b64 += '='.repeat((4 - b64.length % 4) % 4);
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes)); // 支援中文名字
+  }
+
+  function showMsg(text, type = '') {
+    $('msg').textContent = text;
+    $('msg').className = type;
+  }
+
+  function onSignIn(resp) {
+    idToken = resp.credential;
+    payload = decodeJwt(idToken);
+    $('avatar').src = payload.picture || '';
+    $('gName').textContent = payload.name || '';
+    $('gEmail').textContent = payload.email || '';
+    if (!$('name').value) $('name').value = payload.name || '';
+    $('loginBox').classList.add('hidden');
+    $('formBox').classList.remove('hidden');
+    showMsg('');
+  }
+
+  function logout() {
+    google.accounts.id.disableAutoSelect();
+    idToken = payload = null;
+    $('form').reset();
+    $('formBox').classList.add('hidden');
+    $('loginBox').classList.remove('hidden');
+    showMsg('已登出');
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!idToken) return showMsg('請先登入', 'err');
+    if (payload.exp * 1000 < Date.now()) {   // ID token 約 1 小時過期
+      logout();
+      return showMsg('登入已過期，請重新登入', 'err');
+    }
+
+    const body = {
+      idToken,
+      name: $('name').value.trim(),
+      gender: (document.querySelector('input[name=gender]:checked') || {}).value
+    };
+
+    $('submitBtn').disabled = true;
+    showMsg('送出中…');
+    try {
+      // 不設 Content-Type → 瀏覽器用 text/plain，避免 CORS preflight（GAS 不處理 OPTIONS）
+      const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(body) });
+      const data = await res.json();
+      if (data.ok) {
+        showMsg(data.updated ? '已更新你之前的回覆 ✓' : '送出成功 ✓', 'ok');
+      } else {
+        showMsg('失敗：' + data.error, 'err');
+      }
+    } catch (err) {
+      showMsg('連線失敗：' + err.message, 'err');
+    } finally {
+      $('submitBtn').disabled = false;
+    }
+  }
+
+  window.onload = () => {
+    google.accounts.id.initialize({ client_id: CLIENT_ID, callback: onSignIn });
+    google.accounts.id.renderButton($('googleBtn'), { theme: 'outline', size: 'large', text: 'signin_with', locale: 'zh-TW' });
+    $('form').addEventListener('submit', submit);
+    $('logoutBtn').addEventListener('click', logout);
+  };
+</script>
+</body>
+</html>
